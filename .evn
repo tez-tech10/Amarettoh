@@ -1,0 +1,26 @@
+# ── SUPABASE ──────────────────────────────────────────────────────────────────
+# From: supabase.com → Project Settings → API
+SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
+SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# ── MUX ───────────────────────────────────────────────────────────────────────
+# From: dashboard.mux.com → Settings → API Access Tokens
+MUX_TOKEN_ID=your-mux-token-id
+MUX_TOKEN_SECRET=your-mux-token-secret
+
+# ── JWT ───────────────────────────────────────────────────────────────────────
+# Generate with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+JWT_SECRET=generate-a-long-random-string-here
+
+# ── PAYHIP ────────────────────────────────────────────────────────────────────
+# From: payhip.com → Account → Webhooks → Secret
+PAYHIP_WEBHOOK_SECRET=your-payhip-webhook-secret
+
+# ── ADMIN ─────────────────────────────────────────────────────────────────────
+# Used by the admin dashboard to authenticate API calls
+# Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ADMIN_API_KEY=generate-a-strong-api-key-here
+
+# ── GENERAL ───────────────────────────────────────────────────────────────────
+SITE_URL=https://amarettoh.com
+PORT=3000
