@@ -141,10 +141,27 @@ app.post('/webhook/payhip', async (req, res) => {
     );
 
     console.log(`[Webhook] Purchase stored: ${buyer_email} → ${video?.title || productId}`);
+    console.log(`[Webhook] order_id: ${order_id}, product_id: ${productId}, amount: ${amount}`);
     res.json({ received: true });
   } catch (e) {
     console.error('[Webhook] Error:', e.message);
     res.json({ received: true }); // always 200
+  }
+});
+
+// ── SALES LOG endpoint (admin) ──
+app.get('/api/admin/sales-log', adminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.*, v.title AS video_title
+       FROM purchases p
+       LEFT JOIN videos v ON v.id = p.video_id
+       ORDER BY p.created_at DESC
+       LIMIT 100`
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -194,12 +211,16 @@ app.post('/api/verify', async (req, res) => {
     );
 
     // Send ONCE via Resend
-    await resend.emails.send({
+    console.log(`[Verify] Sending email to ${email} via Resend...`);
+    console.log(`[Verify] FROM_EMAIL: ${FROM_EMAIL}`);
+    console.log(`[Verify] RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+    const emailResult = await resend.emails.send({
       from:    FROM_EMAIL,
       to:      email,
       subject: `Your video is ready — ${purchase.title}`,
       html:    buildWatchEmail(purchase.title, watchUrl, orderId),
     });
+    console.log(`[Verify] Resend result:`, JSON.stringify(emailResult));
 
     // Lock forever
     await pool.query(
