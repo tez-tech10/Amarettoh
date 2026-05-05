@@ -29,7 +29,22 @@ const MAX_IPS    = 3;
 
 // ── MIDDLEWARE ────────────────────────────────────────────────
 app.use(cors({
-  origin: [SITE_URL, 'http://localhost:3000', 'http://127.0.0.1:5500'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    const allowed = [
+      SITE_URL,
+      'https://timely-jelly-d669b7.netlify.app',
+      'http://localhost:3000',
+      'http://127.0.0.1:5500',
+    ];
+    if (allowed.some(function(o) { return origin === o || origin.endsWith('.netlify.app'); })) {
+      return callback(null, true);
+    }
+    callback(new Error('CORS: origin not allowed — ' + origin));
+  },
+  methods: ['GET','POST','PUT','DELETE'],
+  allowedHeaders: ['Content-Type','Authorization'],
 }));
 app.use('/webhook/payhip', express.raw({ type: 'application/json' }));
 app.use(express.json());
@@ -393,6 +408,8 @@ app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (re
   const ext      = req.file.mimetype.split('/')[1].replace('jpeg','jpg');
   const filename = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
   const storageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filename}`;
+  console.log('[Upload] SUPABASE_URL:', process.env.SUPABASE_URL);
+  console.log('[Upload] Target URL:', storageUrl);
 
   try {
     // Use PUT with upsert header for Supabase storage
