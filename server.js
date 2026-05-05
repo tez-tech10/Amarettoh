@@ -433,12 +433,13 @@ app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (re
   if (!serviceKey)  return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not set in environment' });
 
   const ext        = req.file.mimetype.includes('png') ? 'png' : req.file.mimetype.includes('webp') ? 'webp' : 'jpg';
-  const filename   = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-  const uploadUrl  = `${supabaseUrl}/storage/v1/object/videos/${filename}`;
+  const filename   = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  // Correct Supabase Storage URL: /object/{bucket}/{path}
+  const uploadUrl  = `${supabaseUrl}/storage/v1/object/videos/covers/${filename}`;
 
   console.log('[Upload] supabaseUrl:', supabaseUrl);
   console.log('[Upload] serviceKey starts with:', serviceKey.slice(0, 10));
-  console.log('[Upload] filename:', filename);
+  console.log('[Upload] uploadUrl:', uploadUrl);
   console.log('[Upload] mimetype:', req.file.mimetype);
   console.log('[Upload] size:', req.file.size);
 
@@ -462,7 +463,8 @@ app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (re
       return res.status(500).json({ error: `Storage upload failed: ${responseText}` });
     }
 
-    const publicUrl = `${supabaseUrl}/storage/v1/object/public/videos/${filename}`;
+    // Public URL format: /object/public/{bucket}/{path}
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/videos/covers/${filename}`;
     console.log('[Upload] success, public URL:', publicUrl);
     res.json({ url: publicUrl });
   } catch (e) {
@@ -484,7 +486,7 @@ app.delete('/api/admin/delete-cover', adminAuth, async (req, res) => {
     const marker  = '/object/public/videos/';
     const idx     = url.indexOf(marker);
     if (idx === -1) return res.status(400).json({ error: 'Not a storage URL' });
-    const filePath = url.slice(idx + marker.length);
+    const filePath = url.slice(idx + marker.length); // e.g. covers/filename.png
 
     const deleteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filePath}`;
     const r = await fetch(deleteUrl, {
@@ -588,7 +590,7 @@ app.delete('/api/admin/videos/:id', adminAuth, async (req, res) => {
       const marker = '/object/public/videos/';
       const idx    = coverUrl.indexOf(marker);
       if (idx !== -1) {
-        const filePath  = coverUrl.slice(idx + marker.length);
+        const filePath  = coverUrl.slice(idx + marker.length); // e.g. covers/filename.png
         const deleteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filePath}`;
         await fetch(deleteUrl, {
           method:  'DELETE',
