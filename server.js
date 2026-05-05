@@ -395,12 +395,14 @@ app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (re
   const storageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filename}`;
 
   try {
+    // Use PUT with upsert header for Supabase storage
     const uploadRes = await fetch(storageUrl, {
       method:  'POST',
       headers: {
         'Authorization':  `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
         'Content-Type':   req.file.mimetype,
         'Cache-Control':  '3600',
+        'x-upsert':       'true',
       },
       body: req.file.buffer,
     });
