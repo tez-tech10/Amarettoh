@@ -405,33 +405,47 @@ app.post('/api/support/ticket/:id/reply', async (req, res) => {
 app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
 
-  const ext      = req.file.mimetype.split('/')[1].replace('jpeg','jpg');
-  const filename = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-  const storageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filename}`;
-  console.log('[Upload] SUPABASE_URL:', process.env.SUPABASE_URL);
-  console.log('[Upload] Target URL:', storageUrl);
+  const supabaseUrl = (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const serviceKey  = (process.env.SUPABASE_SERVICE_KEY || '').trim();
+
+  if (!supabaseUrl) return res.status(500).json({ error: 'SUPABASE_URL not set in environment' });
+  if (!serviceKey)  return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not set in environment' });
+
+  const ext        = req.file.mimetype.includes('png') ? 'png' : req.file.mimetype.includes('webp') ? 'webp' : 'jpg';
+  const filename   = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const uploadUrl  = `${supabaseUrl}/storage/v1/object/videos/${filename}`;
+
+  console.log('[Upload] supabaseUrl:', supabaseUrl);
+  console.log('[Upload] serviceKey starts with:', serviceKey.slice(0, 10));
+  console.log('[Upload] filename:', filename);
+  console.log('[Upload] mimetype:', req.file.mimetype);
+  console.log('[Upload] size:', req.file.size);
 
   try {
-    // Use PUT with upsert header for Supabase storage
-    const uploadRes = await fetch(storageUrl, {
+    const uploadRes = await fetch(uploadUrl, {
       method:  'POST',
       headers: {
-        'Authorization':  `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
-        'Content-Type':   req.file.mimetype,
-        'Cache-Control':  '3600',
-        'x-upsert':       'true',
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type':  req.file.mimetype,
+        'Cache-Control': '3600',
+        'x-upsert':      'true',
       },
       body: req.file.buffer,
     });
 
+    const responseText = await uploadRes.text();
+    console.log('[Upload] response status:', uploadRes.status);
+    console.log('[Upload] response body:', responseText);
+
     if (!uploadRes.ok) {
-      const err = await uploadRes.text();
-      return res.status(500).json({ error: `Storage upload failed: ${err}` });
+      return res.status(500).json({ error: `Storage upload failed: ${responseText}` });
     }
 
-    const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/videos/${filename}`;
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/videos/${filename}`;
+    console.log('[Upload] success, public URL:', publicUrl);
     res.json({ url: publicUrl });
   } catch (e) {
+    console.error('[Upload] exception:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
