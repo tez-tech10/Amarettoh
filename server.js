@@ -418,6 +418,33 @@ app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (re
 });
 
 // ═══════════════════════════════════════════════════════════
+// ADMIN — Delete cover photo from storage
+// ═══════════════════════════════════════════════════════════
+
+app.delete('/api/admin/delete-cover', adminAuth, async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL required' });
+
+  try {
+    // Extract the path after /object/public/videos/
+    const marker  = '/object/public/videos/';
+    const idx     = url.indexOf(marker);
+    if (idx === -1) return res.status(400).json({ error: 'Not a storage URL' });
+    const filePath = url.slice(idx + marker.length);
+
+    const deleteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filePath}`;
+    const r = await fetch(deleteUrl, {
+      method:  'DELETE',
+      headers: { 'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}` },
+    });
+
+    res.json({ deleted: r.ok, status: r.status });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // ADMIN — Videos CRUD
 // ═══════════════════════════════════════════════════════════
 
@@ -496,7 +523,26 @@ app.put('/api/admin/videos/:id', adminAuth, async (req, res) => {
 
 app.delete('/api/admin/videos/:id', adminAuth, async (req, res) => {
   try {
+    // Fetch cover URL before deleting so we can clean up storage
+    const { rows } = await pool.query('SELECT cover_photo_url FROM videos WHERE id=$1', [req.params.id]);
+    const coverUrl = rows[0]?.cover_photo_url || null;
+
     await pool.query('DELETE FROM videos WHERE id=$1', [req.params.id]);
+
+    // Delete cover photo from Supabase Storage
+    if (coverUrl) {
+      const marker = '/object/public/videos/';
+      const idx    = coverUrl.indexOf(marker);
+      if (idx !== -1) {
+        const filePath  = coverUrl.slice(idx + marker.length);
+        const deleteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filePath}`;
+        await fetch(deleteUrl, {
+          method:  'DELETE',
+          headers: { 'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}` },
+        }).catch(() => {}); // non-fatal if storage delete fails
+      }
+    }
+
     res.json({ deleted: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
