@@ -74,6 +74,25 @@ function getIP(req) {
     || 'unknown';
 }
 
+// Extract Payhip product ID from any URL format
+// Handles: payhip.com/b/9QE7D and payhip.com/buy?link[]=9QE7D&...
+function extractPayhipId(url) {
+  if (!url) return null;
+  try {
+    // Format 1: payhip.com/b/XXXXX
+    const m = url.match(/payhip\.com\/b\/([A-Za-z0-9]+)/);
+    if (m) return m[1];
+    // Format 2: payhip.com/buy?link[]=XXXXX or link%5B%5D=XXXXX
+    const decoded = decodeURIComponent(url);
+    const m2 = decoded.match(/link\[\]=([A-Za-z0-9]+)/);
+    if (m2) return m2[1];
+    // Format 3: cart_links[]=XXXXX
+    const m3 = decoded.match(/cart_links\[\]=([A-Za-z0-9]+)/);
+    if (m3) return m3[1];
+  } catch(e) {}
+  return null;
+}
+
 // Extract Mux playback ID from embed code, iframe, or URL
 function extractMuxId(input) {
   input = (input || '').trim();
@@ -160,7 +179,7 @@ app.post('/webhook/payhip', async (req, res) => {
     order_id    = event.data.order_id;
     amount      = event.data.amount;
     const productLink = event.data.product_link || '';
-    productId   = productLink.split('/b/').pop().split('/')[0];
+    productId = extractPayhipId(productLink) || productLink.split('/b/').pop().split('/')[0];
   } else {
     // Test webhook format
     buyer_email = event.email;
