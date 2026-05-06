@@ -115,21 +115,22 @@ app.get('/api/videos', async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 
 app.post('/webhook/payhip', async (req, res) => {
-  const sig      = req.headers['x-payhip-signature'] || '';
-  const secret   = process.env.PAYHIP_WEBHOOK_SECRET || '';
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(req.body).digest('hex');
+  const sig    = req.headers['x-payhip-signature'] || '';
+  const secret = process.env.PAYHIP_WEBHOOK_SECRET || '';
 
-  console.log('[Webhook] sig received:', sig.slice(0,20));
-  console.log('[Webhook] sig expected:', expected.slice(0,20));
-  console.log('[Webhook] secret set:', secret.length > 0);
-  console.log('[Webhook] headers:', JSON.stringify(req.headers));
-
-  if (sig !== expected) {
-    console.warn('[Webhook] Bad signature — proceeding anyway for debugging');
-    // return res.status(400).json({ error: 'Invalid signature' });
+  // Only verify signature if Payhip sends it (real purchases)
+  // Test webhooks from Payhip dashboard don't include the signature header
+  if (sig && secret) {
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(req.body).digest('hex');
+    if (sig !== expected) {
+      console.warn('[Webhook] Bad signature — rejecting');
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
   }
+
+  console.log('[Webhook] Received — sig present:', !!sig);
 
   const event = JSON.parse(req.body.toString());
   if (event.event !== 'payment:completed') return res.json({ received: true });
