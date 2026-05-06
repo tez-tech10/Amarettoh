@@ -134,21 +134,67 @@ app.post('/webhook/payhip', async (req, res) => {
   try {
     // Find matching video
     const { rows: vids } = await pool.query(
-      'SELECT id, title FROM videos WHERE payhip_product_id = $1', [productId]
+      'SELECT id, title, mux_full_id, mux_preview_id FROM videos WHERE payhip_product_id = $1',
+      [productId]
     );
     const video = vids[0] || null;
+    console.log(`[Webhook] product_id: ${productId}, video found: ${video?.title || 'none'}`);
 
-    await pool.query(
+    const email = buyer_email.toLowerCase().trim();
+    const { rows: insertRows } = await pool.query(
       `INSERT INTO purchases
          (payhip_order_id, buyer_email, video_id, payhip_product_id, amount, payhip_payload)
        VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (payhip_order_id) DO NOTHING`,
-      [order_id, buyer_email.toLowerCase().trim(), video?.id || null,
+       ON CONFLICT (payhip_order_id) DO NOTHING
+       RETURNING id`,
+      [order_id, email, video?.id || null,
        productId, parseFloat(amount) || null, JSON.stringify(event.data)]
     );
+    const purchase = insertRows[0] || null;
+    buyer_email = email;
 
     console.log(`[Webhook] Purchase stored: ${buyer_email} → ${video?.title || productId}`);
-    console.log(`[Webhook] order_id: ${order_id}, product_id: ${productId}, amount: ${amount}`);
+
+    // ── Send watch link immediately — no verify page needed ──
+    if (video) {
+      try {
+        const token    = makeToken();
+        const watchUrl = `${SITE_URL}/watch?t=${token}`;
+        const muxId    = video.mux_full_id || video.mux_preview_id;
+
+        // Insert watch token
+        await pool.query(
+          `INSERT INTO video_tokens
+             (token, purchase_id, video_id, video_title, mux_playback_id, buyer_email, allowed_ips)
+           VALUES ($1,$2,$3,$4,$5,$6,'[]')`,
+          [token, purchase.id, video.id, video.title, muxId, buyer_email]
+        );
+
+        // Send email via Resend
+        console.log(`[Webhook] Sending watch link to ${buyer_email}...`);
+        const emailResult = await resend.emails.send({
+          from:    FROM_EMAIL,
+          to:      buyer_email,
+          subject: `Your video is ready — ${video.title}`,
+          html:    buildWatchEmail(video.title, watchUrl, order_id),
+        });
+        console.log(`[Webhook] Resend result:`, JSON.stringify(emailResult));
+
+        // Lock purchase
+        await pool.query(
+          `UPDATE purchases SET link_sent=true, link_sent_at=NOW(), watch_token=$1, watch_url=$2 WHERE id=$3`,
+          [token, watchUrl, purchase.id]
+        );
+
+        console.log(`[Webhook] Watch link sent to ${buyer_email}: ${watchUrl}`);
+      } catch (emailErr) {
+        console.error('[Webhook] Email send error:', emailErr.message);
+        // Purchase is stored, can retry via /api/verify
+      }
+    } else {
+      console.warn(`[Webhook] No matching video found for product: ${productId}`);
+    }
+
     res.json({ received: true });
   } catch (e) {
     console.error('[Webhook] Error:', e.message);
