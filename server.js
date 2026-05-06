@@ -75,20 +75,23 @@ function getIP(req) {
 }
 
 // Extract Payhip product ID from any URL format
-// Handles: payhip.com/b/9QE7D and payhip.com/buy?link[]=9QE7D&...
 function extractPayhipId(url) {
   if (!url) return null;
   try {
     // Format 1: payhip.com/b/XXXXX
-    const m = url.match(/payhip\.com\/b\/([A-Za-z0-9]+)/);
+    let m = url.match(/payhip\.com\/b\/([A-Za-z0-9]+)/);
     if (m) return m[1];
-    // Format 2: payhip.com/buy?link[]=XXXXX or link%5B%5D=XXXXX
+    // Decode percent-encoding first (link%5B%5D -> link[])
     const decoded = decodeURIComponent(url);
-    const m2 = decoded.match(/link\[\]=([A-Za-z0-9]+)/);
-    if (m2) return m2[1];
+    // Format 2: link[]=XXXXX
+    m = decoded.match(/link\.{0,1}\[\]=([A-Za-z0-9]+)/);
+    if (m) return m[1];
     // Format 3: cart_links[]=XXXXX
-    const m3 = decoded.match(/cart_links\[\]=([A-Za-z0-9]+)/);
-    if (m3) return m3[1];
+    m = decoded.match(/cart_links\[\]=([A-Za-z0-9]+)/);
+    if (m) return m[1];
+    // Format 4: any param =XXXXX where XXXXX is 4-6 alphanumeric (Payhip product key length)
+    m = decoded.match(/[?&][^=]+=([A-Za-z0-9]{4,8})(?:&|$)/);
+    if (m) return m[1];
   } catch(e) {}
   return null;
 }
