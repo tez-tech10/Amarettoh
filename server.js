@@ -142,8 +142,10 @@ app.post('/webhook/payhip', async (req, res) => {
     return res.json({ received: true });
   }
 
-  const event = JSON.parse(req.body.toString());
-  if (event.event !== 'payment:completed') return res.json({ received: true });
+  if (event.event !== 'payment:completed') {
+    console.log('[Webhook] Ignoring event:', event.event);
+    return res.json({ received: true });
+  }
 
   const { buyer_email, order_id, product_link, amount } = event.data;
   const productId = (product_link || '').split('/b/').pop().split('/')[0];
