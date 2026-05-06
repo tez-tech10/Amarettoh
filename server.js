@@ -837,7 +837,7 @@ function buildWatchEmail(videoTitle, watchUrl, orderId) {
 
     // Hero image section
     '<div style="position:relative;width:100%;overflow:hidden;">' +
-    '<img src="https://image.mux.com/Fcc802QCvdCd3011zQ18qf8Tn1XUa1myy8OPzd7ard6RI/thumbnail.jpg?time=1&width=520&height=340&fit_mode=smartcrop" alt="Amaretto H." style="width:100%;display:block;height:340px;object-fit:cover;object-position:top center;">' +
+    '<img src="https://timely-jelly-d669b7.netlify.app/hero-poster.jpg" alt="Amaretto H." style="width:100%;display:block;height:380px;object-fit:cover;object-position:center 20%;">' +
     '<div style="position:absolute;bottom:0;left:0;right:0;height:65%;background:linear-gradient(0deg,#080202 0%,rgba(80,10,10,0.6) 55%,transparent 100%);"></div>' +
     '<div style="position:absolute;bottom:0;left:0;right:0;padding:28px;text-align:center;">' +
     '<div style="font-family:Cinzel,Georgia,serif;font-size:1.5rem;font-weight:600;letter-spacing:0.22em;color:#fafafa;text-transform:uppercase;text-shadow:0 2px 12px rgba(0,0,0,0.9);margin-bottom:4px;">AMARETTO H.</div>' +
