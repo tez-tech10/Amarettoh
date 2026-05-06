@@ -556,19 +556,20 @@ app.get('/api/admin/videos', adminAuth, async (req, res) => {
 });
 
 app.post('/api/admin/videos', adminAuth, async (req, res) => {
-  const { title, description, price, duration, cover_photo_url,
+  const { title, description, price, duration, preview_type,
           mux_preview_embed, mux_full_embed, payhip_url, active } = req.body;
 
-  if (!title || !mux_preview_embed || !payhip_url)
-    return res.status(400).json({ error: 'title, mux_preview_embed and payhip_url required' });
+  if (!title || !mux_full_embed || !payhip_url)
+    return res.status(400).json({ error: 'title, mux_full_embed and payhip_url required' });
 
-  const previewId = extractMuxId(mux_preview_embed);
-  const fullId    = mux_full_embed ? extractMuxId(mux_full_embed) : null;
+  const fullId    = extractMuxId(mux_full_embed);
+  const previewId = mux_preview_embed ? extractMuxId(mux_preview_embed) : null;
 
-  if (!previewId)
-    return res.status(400).json({ error: 'Could not extract Mux ID from preview embed code.' });
+  if (!fullId)
+    return res.status(400).json({ error: 'Could not extract Mux ID from full video embed code.' });
 
-  const productId = payhip_url.split('/b/').pop().split('/')[0] || null;
+  const prodId = extractPayhipId(payhip_url);
+  console.log('[Videos POST] payhip_url:', payhip_url, '→ prodId:', prodId);
 
   try {
     const { rows: [video] } = await pool.query(
@@ -578,7 +579,7 @@ app.post('/api/admin/videos', adminAuth, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [title, description || null, parseFloat(price) || 0, duration || null,
-       preview_type || 'gif', previewId || null, fullId, payhip_url, productId,
+       preview_type || 'gif', previewId || null, fullId, payhip_url, prodId,
        active !== false]
     );
     res.status(201).json(video);
@@ -591,13 +592,14 @@ app.put('/api/admin/videos/:id', adminAuth, async (req, res) => {
 
   const fullId    = mux_full_embed    ? extractMuxId(mux_full_embed)    : undefined;
   const previewId = mux_preview_embed ? extractMuxId(mux_preview_embed) : undefined;
-  const productId = payhip_url ? payhip_url.split('/b/').pop().split('/')[0] : undefined;
+  const productId = payhip_url ? extractPayhipId(payhip_url) : undefined;
+
+  console.log('[Videos PUT] payhip_url:', payhip_url, '→ productId:', productId);
 
   const fields = [];
   const vals   = [];
   let i = 1;
-
-  const set = (col, val) => { if (val !== undefined) { fields.push(`${col}=$${i++}`); vals.push(val); } };
+  const set = (col, val) => { if (val !== undefined) { fields.push(col + '=$' + i++); vals.push(val); } };
 
   set('title',             title);
   set('description',       description);
