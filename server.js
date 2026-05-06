@@ -99,7 +99,7 @@ app.get('/api/videos', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, title, description, price, duration,
-              cover_photo_url, mux_preview_id, payhip_url
+              preview_type, mux_preview_id, mux_full_id, payhip_url
        FROM videos
        WHERE active = true
        ORDER BY created_at DESC`
@@ -430,69 +430,11 @@ app.post('/api/support/ticket/:id/reply', async (req, res) => {
 // ADMIN — Cover photo upload → Supabase Storage
 // ═══════════════════════════════════════════════════════════
 
-app.post('/api/admin/upload-cover', adminAuth, upload.single('photo'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file provided' });
-
-  const ext      = req.file.mimetype.includes('png') ? 'png' : req.file.mimetype.includes('webp') ? 'webp' : 'jpg';
-  const filename = `covers/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-  console.log('[Upload] uploading to bucket: videos, path:', filename);
-  console.log('[Upload] size:', req.file.size, 'type:', req.file.mimetype);
-
-  try {
-    const { data, error } = await supabase.storage
-      .from('videos')
-      .upload(filename, req.file.buffer, {
-        contentType:  req.file.mimetype,
-        cacheControl: '3600',
-        upsert:       true,
-      });
-
-    if (error) {
-      console.error('[Upload] Supabase error:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    console.log('[Upload] success, data:', JSON.stringify(data));
-
-    const { data: urlData } = supabase.storage
-      .from('videos')
-      .getPublicUrl(filename);
-
-    console.log('[Upload] public URL:', urlData.publicUrl);
-    res.json({ url: urlData.publicUrl });
-  } catch (e) {
-    console.error('[Upload] exception:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN — Delete cover photo from storage
 // ═══════════════════════════════════════════════════════════
 
-app.delete('/api/admin/delete-cover', adminAuth, async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL required' });
-
-  try {
-    // Extract the path after /object/public/videos/
-    const marker  = '/object/public/videos/';
-    const idx     = url.indexOf(marker);
-    if (idx === -1) return res.status(400).json({ error: 'Not a storage URL' });
-    const filePath = url.slice(idx + marker.length); // e.g. covers/filename.png
-
-    const deleteUrl = `${process.env.SUPABASE_URL}/storage/v1/object/videos/${filePath}`;
-    const r = await fetch(deleteUrl, {
-      method:  'DELETE',
-      headers: { 'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}` },
-    });
-
-    res.json({ deleted: r.ok, status: r.status });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN — Videos CRUD
@@ -523,12 +465,12 @@ app.post('/api/admin/videos', adminAuth, async (req, res) => {
   try {
     const { rows: [video] } = await pool.query(
       `INSERT INTO videos
-         (title, description, price, duration, cover_photo_url,
+         (title, description, price, duration, preview_type,
           mux_preview_id, mux_full_id, payhip_url, payhip_product_id, active)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [title, description || null, parseFloat(price) || 0, duration || null,
-       cover_photo_url || null, previewId, fullId, payhip_url, productId,
+       preview_type || 'gif', previewId || null, fullId, payhip_url, productId,
        active !== false]
     );
     res.status(201).json(video);
@@ -536,11 +478,11 @@ app.post('/api/admin/videos', adminAuth, async (req, res) => {
 });
 
 app.put('/api/admin/videos/:id', adminAuth, async (req, res) => {
-  const { title, description, price, duration, cover_photo_url,
+  const { title, description, price, duration, preview_type,
           mux_preview_embed, mux_full_embed, payhip_url, active } = req.body;
 
-  const previewId = mux_preview_embed ? extractMuxId(mux_preview_embed) : undefined;
   const fullId    = mux_full_embed    ? extractMuxId(mux_full_embed)    : undefined;
+  const previewId = mux_preview_embed ? extractMuxId(mux_preview_embed) : undefined;
   const productId = payhip_url ? payhip_url.split('/b/').pop().split('/')[0] : undefined;
 
   const fields = [];
@@ -553,7 +495,7 @@ app.put('/api/admin/videos/:id', adminAuth, async (req, res) => {
   set('description',       description);
   set('price',             price !== undefined ? parseFloat(price) : undefined);
   set('duration',          duration);
-  set('cover_photo_url',   cover_photo_url);
+  set('preview_type',      preview_type);
   set('mux_preview_id',    previewId);
   set('mux_full_id',       fullId);
   set('payhip_url',        payhip_url);
