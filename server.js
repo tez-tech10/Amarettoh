@@ -142,13 +142,34 @@ app.post('/webhook/payhip', async (req, res) => {
     return res.json({ received: true });
   }
 
-  if (event.event !== 'payment:completed') {
+  // Handle both real purchase format (event.event = 'payment:completed')
+  // and Payhip test format (no event field, data directly in body)
+  const isRealPurchase = event.event === 'payment:completed';
+  const isTestWebhook  = !event.event && event.email && event.items;
+
+  if (!isRealPurchase && !isTestWebhook) {
     console.log('[Webhook] Ignoring event:', event.event);
     return res.json({ received: true });
   }
 
-  const { buyer_email, order_id, product_link, amount } = event.data;
-  const productId = (product_link || '').split('/b/').pop().split('/')[0];
+  // Normalize the data from either format
+  let buyer_email, order_id, productId, amount;
+
+  if (isRealPurchase) {
+    buyer_email = event.data.buyer_email;
+    order_id    = event.data.order_id;
+    amount      = event.data.amount;
+    const productLink = event.data.product_link || '';
+    productId   = productLink.split('/b/').pop().split('/')[0];
+  } else {
+    // Test webhook format
+    buyer_email = event.email;
+    order_id    = event.id;
+    amount      = event.price;
+    productId   = event.items?.[0]?.product_key || '';
+  }
+
+  console.log('[Webhook] buyer:', buyer_email, 'order:', order_id, 'product:', productId);
 
   try {
     // Find matching video
