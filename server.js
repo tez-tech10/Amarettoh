@@ -132,6 +132,16 @@ app.post('/webhook/payhip', async (req, res) => {
 
   console.log('[Webhook] Received — sig present:', !!sig);
 
+  let event;
+  try {
+    event = JSON.parse(req.body.toString());
+    console.log('[Webhook] event type:', event.event);
+    console.log('[Webhook] full body:', JSON.stringify(event).slice(0, 500));
+  } catch(e) {
+    console.error('[Webhook] JSON parse error:', e.message);
+    return res.json({ received: true });
+  }
+
   const event = JSON.parse(req.body.toString());
   if (event.event !== 'payment:completed') return res.json({ received: true });
 
