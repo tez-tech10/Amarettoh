@@ -256,7 +256,7 @@ app.post('/webhook/payhip', async (req, res) => {
           from:    FROM_EMAIL,
           to:      buyer_email,
           subject: `Your video is ready — ${video.title}`,
-          html:    buildWatchEmail(video.title, watchUrl, order_id),
+          html:    buildWatchEmail(video.title, watchUrl, order_id, video.model_id),
         });
         console.log(`[Webhook] Resend result:`, JSON.stringify(emailResult));
 
@@ -321,7 +321,7 @@ app.post('/api/admin/resend-link/:purchaseId', adminAuth, async (req, res) => {
       from:    FROM_EMAIL,
       to:      purchase.buyer_email,
       subject: `Your new watch link — ${purchase.title}`,
-      html:    buildWatchEmail(purchase.title, watchUrl, purchase.payhip_order_id),
+      html:    buildWatchEmail(purchase.title, watchUrl, purchase.payhip_order_id, purchase.model_id),
     });
     console.log('[Resend Link] Sent to:', purchase.buyer_email, JSON.stringify(emailResult));
 
@@ -852,63 +852,133 @@ app.post('/api/admin/token/revoke/:token', adminAuth, async (req, res) => {
 // EMAIL TEMPLATES
 // ═══════════════════════════════════════════════════════════
 
-function buildWatchEmail(videoTitle, watchUrl, orderId) {
-  const siteUrl = process.env.SITE_URL || 'https://amarettoh.com';
+function buildWatchEmail(videoTitle, watchUrl, orderId, modelId) {
+  const model = modelId || 'amaretto';
+  const siteUrl = getSiteUrl(model);
+
+  // Per-model branding
+  const brands = {
+    amaretto: {
+      name:       'AMARETTO H.',
+      sub:        'STORE',
+      headerImg:  'https://timely-jelly-d669b7.netlify.app/hero-poster.jpg',
+      imgPos:     'center 20%',
+      accentColor:'#bc1b1b',
+      btnGrad:    'linear-gradient(135deg,#4d0b0b,#bc1b1b 50%,#960000)',
+      btnShadow:  'rgba(188,27,27,0.4)',
+      darkBg:     '#080202',
+      borderColor:'#2a0808',
+      goldColor:  '#be9a6a',
+      darkBorder: '#1a0404',
+    },
+    nyla: {
+      name:       'NYLA GREEN',
+      sub:        'STORE',
+      headerImg:  'https://nylagreen.com/hero-poster.jpg',
+      imgPos:     'center 25%',
+      accentColor:'#2d5a27',
+      btnGrad:    'linear-gradient(135deg,#1a4a1a,#3d7a3d 50%,#2d5a2d)',
+      btnShadow:  'rgba(61,122,61,0.4)',
+      darkBg:     '#060f06',
+      borderColor:'#1a3a1a',
+      goldColor:  '#8ab88a',
+      darkBorder: '#0f220f',
+    },
+    sophia: {
+      name:       'SOPHIA VEE',
+      sub:        'STORE',
+      headerImg:  '', // no hosted image yet
+      imgPos:     'center 20%',
+      accentColor:'#d4186c',
+      btnGrad:    'linear-gradient(135deg,#4d0b35,#d4186c 50%,#a01055)',
+      btnShadow:  'rgba(212,24,108,0.4)',
+      darkBg:     '#080308',
+      borderColor:'#2a0820',
+      goldColor:  '#e8c96a',
+      darkBorder: '#1e0818',
+    },
+    amber: {
+      name:       'AMBERDYME',
+      sub:        'STORE',
+      headerImg:  '', // no hosted image yet — use text header
+      imgPos:     'center 35%',
+      accentColor:'#C89000',
+      btnGrad:    'linear-gradient(135deg,#8A5A00,#F5B700 50%,#C89000)',
+      btnShadow:  'rgba(245,183,0,0.4)',
+      darkBg:     '#0F0D00',
+      borderColor:'#2A2600',
+      goldColor:  '#F5B700',
+      darkBorder: '#1A1600',
+    },
+  };
+
+  const b = brands[model] || brands.amaretto;
+
+  // Hero section — photo if available, text if not
+  const heroSection = b.headerImg
+    ? '<div style="width:100%;height:380px;' +
+        'background:' +
+          'linear-gradient(0deg,' + b.darkBg + ' 0%,rgba(0,0,0,0.85) 20%,rgba(0,0,0,0.4) 45%,transparent 70%),' +
+          'linear-gradient(180deg,' + b.darkBg + ' 0%,rgba(0,0,0,0.7) 25%,transparent 55%),' +
+          'linear-gradient(90deg,' + b.darkBg + ' 0%,rgba(0,0,0,0.8) 10%,transparent 35%),' +
+          'linear-gradient(270deg,' + b.darkBg + ' 0%,rgba(0,0,0,0.8) 10%,transparent 35%),' +
+          'url(' + b.headerImg + ');' +
+        'background-size:cover;background-position:' + b.imgPos + ';background-repeat:no-repeat;">' +
+        '<div style="height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:0 28px 28px;">' +
+          '<div style="font-family:Cinzel,Georgia,serif;font-size:1.6rem;font-weight:600;letter-spacing:0.22em;color:#fafafa;text-transform:uppercase;text-shadow:0 2px 12px rgba(0,0,0,0.9);margin-bottom:4px;">' + b.name + '</div>' +
+          '<div style="font-family:Cinzel,Georgia,serif;font-size:0.7rem;letter-spacing:0.35em;color:' + b.goldColor + ';text-transform:uppercase;text-shadow:0 1px 6px rgba(0,0,0,0.9);">' + b.sub + '</div>' +
+        '</div>' +
+      '</div>'
+    : '<div style="background:' + b.darkBg + ';padding:40px 28px;text-align:center;border-bottom:1px solid ' + b.borderColor + ';">' +
+        '<div style="font-family:Cinzel,Georgia,serif;font-size:1.8rem;font-weight:600;letter-spacing:0.22em;color:#fafafa;text-transform:uppercase;margin-bottom:6px;">' + b.name + '</div>' +
+        '<div style="font-family:Cinzel,Georgia,serif;font-size:0.7rem;letter-spacing:0.35em;color:' + b.goldColor + ';text-transform:uppercase;">' + b.sub + '</div>' +
+      '</div>';
+
   return '<!DOCTYPE html>' +
     '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Montserrat:wght@300;400;600&display=swap" rel="stylesheet">' +
-    '</head><body style="margin:0;padding:0;background:#080202;font-family:Montserrat,Helvetica Neue,Helvetica,sans-serif;">' +
-    '<div style="max-width:520px;margin:0 auto;background:#080202;">' +
+    '</head><body style="margin:0;padding:0;background:' + b.darkBg + ';font-family:Montserrat,Helvetica Neue,Helvetica,sans-serif;">' +
+    '<div style="max-width:520px;margin:0 auto;background:' + b.darkBg + ';">' +
 
-    // Hero image section
-    '<div style="position:relative;width:100%;overflow:hidden;">' +
-    '<img src="https://timely-jelly-d669b7.netlify.app/hero-poster.jpg" alt="Amaretto H." style="width:100%;display:block;height:380px;object-fit:cover;object-position:center 20%;">' +
-    '<div style="position:absolute;bottom:0;left:0;right:0;height:70%;background:linear-gradient(0deg,#080202 0%,rgba(112,84,38,0.45) 55%,transparent 100%);"></div>' +
-    '<div style="text-align:center;padding:20px 28px 24px;margin-top:-80px;position:relative;">' +
-    '<div style="font-family:Cinzel,Georgia,serif;font-size:1.5rem;font-weight:600;letter-spacing:0.22em;color:#fafafa;text-transform:uppercase;text-shadow:0 2px 12px rgba(0,0,0,0.9);margin-bottom:4px;">AMARETTO H.</div>' +
-    '<div style="font-family:Cinzel,Georgia,serif;font-size:0.7rem;letter-spacing:0.35em;color:#be9a6a;text-transform:uppercase;text-shadow:0 1px 6px rgba(0,0,0,0.9);">STORE</div>' +
-    '</div></div>' +
+    heroSection +
 
-    // Content
     '<div style="padding:32px 28px 0;">' +
     '<div style="text-align:center;margin-bottom:28px;">' +
-    '<div style="display:inline-block;padding:4px 20px;border:1px solid rgba(190,154,106,0.3);border-radius:20px;margin-bottom:16px;">' +
-    '<span style="font-family:Montserrat,sans-serif;font-size:0.62rem;letter-spacing:0.25em;color:#705426;text-transform:uppercase;">Your purchase is ready</span>' +
+    '<div style="display:inline-block;padding:4px 20px;border:1px solid ' + b.borderColor + ';border-radius:20px;margin-bottom:16px;">' +
+    '<span style="font-family:Montserrat,sans-serif;font-size:0.62rem;letter-spacing:0.25em;color:' + b.goldColor + ';text-transform:uppercase;">Your purchase is ready</span>' +
     '</div>' +
     '<h1 style="font-family:Cinzel,Georgia,serif;font-size:1.4rem;font-weight:400;letter-spacing:0.12em;color:#fafafa;text-transform:uppercase;margin:0 0 10px;">' + videoTitle + '</h1>' +
     '<p style="font-family:Montserrat,sans-serif;font-size:0.78rem;color:#a3a3a3;line-height:1.7;margin:0;">' +
     'Your private watch link is below.<br>' +
-    '<span style="color:#bc1b1b;font-weight:600;">This link is for your use only. Do not share it.</span>' +
+    '<span style="color:' + b.accentColor + ';font-weight:600;">This link is for your use only. Do not share it.</span>' +
     '</p></div>' +
 
-    // Button
     '<div style="text-align:center;margin-bottom:28px;">' +
-    '<a href="' + watchUrl + '" style="display:inline-block;padding:16px 48px;background:linear-gradient(135deg,#4d0b0b,#bc1b1b 50%,#960000);border-radius:30px;color:#fafafa;font-family:Cinzel,Georgia,serif;font-size:0.8rem;letter-spacing:0.2em;text-transform:uppercase;text-decoration:none;box-shadow:0 6px 24px rgba(188,27,27,0.4);">Watch Now</a>' +
+    '<a href="' + watchUrl + '" style="display:inline-block;padding:16px 48px;background:' + b.btnGrad + ';border-radius:30px;color:#fafafa;font-family:Cinzel,Georgia,serif;font-size:0.8rem;letter-spacing:0.2em;text-transform:uppercase;text-decoration:none;box-shadow:0 6px 24px ' + b.btnShadow + ';">Watch Now</a>' +
     '</div>' +
 
-    // Copy link
-    '<div style="background:#100303;border:1px solid #2a0808;border-radius:12px;padding:16px 20px;margin-bottom:16px;text-align:center;">' +
+    '<div style="background:' + b.darkBorder + ';border:1px solid ' + b.borderColor + ';border-radius:12px;padding:16px 20px;margin-bottom:16px;text-align:center;">' +
     '<p style="font-family:Montserrat,sans-serif;font-size:0.62rem;letter-spacing:0.15em;color:#525252;text-transform:uppercase;margin:0 0 8px;">Or copy this link</p>' +
-    '<p style="font-family:Courier New,monospace;font-size:0.65rem;color:#705426;word-break:break-all;margin:0;">' + watchUrl + '</p>' +
+    '<p style="font-family:Courier New,monospace;font-size:0.65rem;color:' + b.goldColor + ';word-break:break-all;margin:0;">' + watchUrl + '</p>' +
     '</div>' +
 
-    // Order info
-    '<div style="background:#0d0202;border:1px solid #1a0404;border-radius:10px;padding:16px 20px;margin-bottom:32px;">' +
+    '<div style="border:1px solid ' + b.borderColor + ';border-radius:10px;padding:16px 20px;margin-bottom:32px;">' +
     '<table style="width:100%;border-collapse:collapse;">' +
     '<tr><td style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:#525252;letter-spacing:0.08em;text-transform:uppercase;padding:5px 0;">Order ID</td>' +
     '<td style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:#a3a3a3;text-align:right;padding:5px 0;">' + orderId + '</td></tr>' +
     '<tr><td style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:#525252;text-transform:uppercase;padding:5px 0;">Note</td>' +
     '<td style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:#a3a3a3;text-align:right;padding:5px 0;">This email will not be resent</td></tr>' +
     '<tr><td style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:#525252;text-transform:uppercase;padding:5px 0;">Support</td>' +
-    '<td style="text-align:right;padding:5px 0;"><a href="' + siteUrl + '/support" style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:#705426;text-decoration:none;">' + siteUrl + '/support</a></td></tr>' +
+    '<td style="text-align:right;padding:5px 0;"><a href="' + siteUrl + '/support" style="font-family:Montserrat,sans-serif;font-size:0.65rem;color:' + b.goldColor + ';text-decoration:none;">' + siteUrl + '/support</a></td></tr>' +
     '</table></div></div>' +
 
-    // Footer
-    '<div style="border-top:1px solid #1a0404;padding:20px 28px;text-align:center;">' +
-    '<p style="font-family:Cinzel,Georgia,serif;font-size:0.62rem;letter-spacing:0.2em;color:#2a0808;text-transform:uppercase;margin:0;">' +
-    '&copy; 2024 Amaretto H. &nbsp;&middot;&nbsp; Private &amp; Discreet' +
+    '<div style="border-top:1px solid ' + b.borderColor + ';padding:20px 28px;text-align:center;">' +
+    '<p style="font-family:Cinzel,Georgia,serif;font-size:0.62rem;letter-spacing:0.2em;color:#2a2a2a;text-transform:uppercase;margin:0;">' +
+    '&copy; 2024 ' + b.name + ' &nbsp;&middot;&nbsp; Private &amp; Discreet' +
     '</p></div></div></body></html>';
 }
+
+
 function buildSupportReplyEmail(subject, body, ticketId) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#080202;font-family:'Helvetica Neue',Helvetica,sans-serif;">
   <div style="max-width:520px;margin:0 auto;padding:40px 24px;">
