@@ -34,6 +34,7 @@ const MODEL_SITES = {
   nyla:     process.env.SITE_URL_NYLA     || 'https://nylagreen.com',
   sophia:   process.env.SITE_URL_SOPHIA   || 'https://sophiavee.netlify.app',
   amber:    process.env.SITE_URL_AMBER    || 'https://amberdyme.netlify.app',
+  ellie:    process.env.SITE_URL_ELLIE    || 'https://elliesgotcake.netlify.app',
 };
 
 function getSiteUrl(modelId) {
@@ -896,6 +897,19 @@ function buildWatchEmail(videoTitle, watchUrl, orderId, modelId) {
       borderColor:'#2a0820',
       goldColor:  '#e8c96a',
       darkBorder: '#1e0818',
+    },
+    ellie: {
+      name:       'ELLIE',
+      sub:        'STORE',
+      headerImg:  '',
+      imgPos:     'center 20%',
+      accentColor:'#C4547A',
+      btnGrad:    'linear-gradient(135deg,#7A1040,#C4547A 50%,#A03560)',
+      btnShadow:  'rgba(196,84,122,0.4)',
+      darkBg:     '#1A0810',
+      borderColor:'#3A1028',
+      goldColor:  '#E87DA0',
+      darkBorder: '#260D18',
     },
     amber: {
       name:       'AMBERDYME',
