@@ -28,6 +28,18 @@ const SITE_URL   = process.env.SITE_URL || 'https://amarettoh.com';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@amarettoh.com';
 const MAX_IPS    = 3;
 
+// Per-model site URLs — set these as env vars or update here after deployment
+const MODEL_SITES = {
+  amaretto: process.env.SITE_URL_AMARETTO || process.env.SITE_URL || 'https://amarettoh.com',
+  nyla:     process.env.SITE_URL_NYLA     || 'https://nylagreen.com',
+  sophia:   process.env.SITE_URL_SOPHIA   || 'https://sophiavee.netlify.app',
+  amber:    process.env.SITE_URL_AMBER    || 'https://amberdyme.netlify.app',
+};
+
+function getSiteUrl(modelId) {
+  return MODEL_SITES[modelId] || SITE_URL;
+}
+
 // Supabase client for storage operations
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -119,12 +131,15 @@ function extractMuxId(input) {
 
 app.get('/api/videos', async (req, res) => {
   try {
+    const model = req.query.model || null;
     const { rows } = await pool.query(
       `SELECT id, title, description, price, duration,
               preview_type, mux_preview_id, mux_full_id, payhip_url
        FROM videos
        WHERE active = true
-       ORDER BY created_at DESC`
+       ${model ? 'AND model_id = $1' : ''}
+       ORDER BY created_at DESC`,
+      model ? [model] : []
     );
     res.json(rows);
   } catch (e) {
@@ -223,7 +238,8 @@ app.post('/webhook/payhip', async (req, res) => {
     if (video) {
       try {
         const token    = makeToken();
-        const watchUrl = `${SITE_URL}/watch?t=${token}`;
+        const modelSite = getSiteUrl(video.model_id || 'amaretto');
+        const watchUrl  = `${modelSite}/watch?t=${token}`;
         const muxId    = video.mux_full_id || video.mux_preview_id;
 
         // Insert watch token
@@ -270,7 +286,7 @@ app.post('/webhook/payhip', async (req, res) => {
 app.post('/api/admin/resend-link/:purchaseId', adminAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.*, v.title, v.mux_full_id, v.mux_preview_id
+      `SELECT p.*, v.title, v.mux_full_id, v.mux_preview_id, v.model_id
        FROM purchases p LEFT JOIN videos v ON v.id = p.video_id
        WHERE p.id = $1`, [req.params.purchaseId]
     );
@@ -284,7 +300,7 @@ app.post('/api/admin/resend-link/:purchaseId', adminAuth, async (req, res) => {
 
     // Generate new token
     const token    = makeToken();
-    const watchUrl = `${SITE_URL}/watch?t=${token}`;
+    const watchUrl = `${getSiteUrl(purchase.model_id || 'amaretto')}/watch?t=${token}`;
     const muxId    = purchase.mux_full_id || purchase.mux_preview_id;
 
     await pool.query(
@@ -368,7 +384,7 @@ app.post('/api/verify', async (req, res) => {
 
     // Create watch token
     const token   = makeToken();
-    const watchUrl = `${SITE_URL}/watch?t=${token}`;
+    const watchUrl = `${getSiteUrl(purchase.model_id || 'amaretto')}/watch?t=${token}`;
     const email   = purchase.buyer_email;
     const muxId   = purchase.mux_full_id || purchase.mux_preview_id;
 
@@ -604,7 +620,13 @@ app.post('/api/support/ticket/:id/reply', async (req, res) => {
 
 app.get('/api/admin/videos', adminAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM videos ORDER BY created_at DESC');
+    const model = req.query.model || null;
+    const { rows } = await pool.query(
+      model
+        ? 'SELECT * FROM videos WHERE model_id = $1 ORDER BY created_at DESC'
+        : 'SELECT * FROM videos ORDER BY created_at DESC',
+      model ? [model] : []
+    );
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -626,15 +648,18 @@ app.post('/api/admin/videos', adminAuth, async (req, res) => {
   console.log('[Videos POST] payhip_url:', payhip_url, '→ prodId:', prodId);
 
   try {
-    const { rows: [video] } = await pool.query(
+    const { title: _t, model_id } = req.body;
+  const modelId = model_id || 'amaretto';
+
+  const { rows: [video] } = await pool.query(
       `INSERT INTO videos
          (title, description, price, duration, preview_type,
-          mux_preview_id, mux_full_id, payhip_url, payhip_product_id, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          mux_preview_id, mux_full_id, payhip_url, payhip_product_id, active, model_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [title, description || null, parseFloat(price) || 0, duration || null,
        preview_type || 'gif', previewId || null, fullId, payhip_url, prodId,
-       active !== false]
+       active !== false, modelId]
     );
     res.status(201).json(video);
   } catch (e) { res.status(500).json({ error: e.message }); }
