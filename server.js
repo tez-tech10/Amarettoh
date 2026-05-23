@@ -210,13 +210,17 @@ app.post('/webhook/payhip', async (req, res) => {
   console.log('[Webhook] buyer:', buyer_email, 'order:', order_id, 'product:', productId);
 
   try {
-    // Find matching video
+    // Find matching video — order by created_at to get most recent if duplicates exist
     const { rows: vids } = await pool.query(
-      'SELECT id, title, mux_full_id, mux_preview_id FROM videos WHERE payhip_product_id = $1',
+      `SELECT id, title, mux_full_id, mux_preview_id, model_id
+       FROM videos
+       WHERE payhip_product_id = $1 AND active = true
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [productId]
     );
     const video = vids[0] || null;
-    console.log(`[Webhook] product_id: ${productId}, video found: ${video?.title || 'none'}`);
+    console.log(`[Webhook] product_id: ${productId}, video found: ${video?.title || 'none'}, model: ${video?.model_id || 'none'}`);
 
     const email = buyer_email.toLowerCase().trim();
     const buyerIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket?.remoteAddress || null;
