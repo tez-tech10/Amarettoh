@@ -1010,6 +1010,159 @@ function buildSupportReplyEmail(subject, body, ticketId) {
   </div></body></html>`;
 }
 
+
+// ── TELEGRAM STARS ──────────────────────────────────────────
+
+const MODEL_BOTS = {
+  amber:    process.env.AMBER_BOT_TOKEN,
+  ellie:    process.env.ELLIE_BOT_TOKEN,
+  nyla:     process.env.NYLA_BOT_TOKEN,
+  sophia:   process.env.SOPHIA_BOT_TOKEN,
+  amaretto: process.env.AMARETTO_BOT_TOKEN,
+};
+
+function usdToStars(usd) {
+  // 1 USD ≈ 50 Stars
+  return Math.max(1, Math.ceil(parseFloat(usd) * 50));
+}
+
+// Generate Stars invoice link
+app.get('/api/stars/invoice', async (req, res) => {
+  const { video_id } = req.query;
+  if (!video_id) return res.status(400).json({ error: 'video_id required' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, title, description, price, model_id FROM videos WHERE id = $1 AND active = true',
+      [video_id]
+    );
+    const video = rows[0];
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+
+    const botToken = MODEL_BOTS[video.model_id];
+    if (!botToken) return res.status(500).json({ error: 'Bot token not configured for: ' + video.model_id });
+
+    const stars = usdToStars(video.price);
+    const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/createInvoiceLink`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title:          video.title.substring(0, 32),
+        description:    (video.description || 'Exclusive private video').substring(0, 255),
+        payload:        JSON.stringify({ video_id: video.id, model_id: video.model_id }),
+        provider_token: '',
+        currency:       'XTR',
+        prices:         [{ label: 'Purchase', amount: stars }],
+      }),
+    });
+    const data = await tgRes.json();
+    console.log('[Stars] createInvoiceLink:', JSON.stringify(data));
+    if (!data.ok) return res.status(500).json({ error: data.description || 'Telegram error' });
+    res.json({ invoice_url: data.result, stars, video_id: video.id });
+  } catch (e) {
+    console.error('[Stars] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Telegram webhook — handles Stars payment confirmation
+app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
+  const model  = req.params.model;
+  const update = req.body;
+  console.log('[TG Webhook]', model, JSON.stringify(update).slice(0, 200));
+
+  // Must answer pre_checkout_query within 10s
+  if (update.pre_checkout_query) {
+    const botToken = MODEL_BOTS[model];
+    await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pre_checkout_query_id: update.pre_checkout_query.id, ok: true }),
+    });
+    return res.json({ ok: true });
+  }
+
+  // Successful payment
+  if (update.message?.successful_payment) {
+    const payment  = update.message.successful_payment;
+    const chatId   = update.message.chat.id;
+    const tgUserId = update.message.from.id;
+    const botToken = MODEL_BOTS[model];
+
+    let payload;
+    try { payload = JSON.parse(payment.invoice_payload); } catch(e) { return res.json({ ok: true }); }
+    const { video_id, model_id } = payload;
+
+    try {
+      const { rows: vids } = await pool.query(
+        'SELECT id, title, mux_full_id FROM videos WHERE id = $1',
+        [video_id]
+      );
+      const video = vids[0];
+      if (!video) throw new Error('Video not found');
+
+      const token    = makeToken();
+      const watchUrl = `${getSiteUrl(model_id)}/watch?t=${token}`;
+      const orderId  = `TG-${tgUserId}-${Date.now()}`;
+
+      const { rows: [purchase] } = await pool.query(
+        `INSERT INTO purchases (payhip_order_id, buyer_email, video_id, payhip_product_id, amount, link_sent)
+         VALUES ($1,$2,$3,$4,$5,true) RETURNING id`,
+        [orderId, `tg:${tgUserId}`, video.id, null, payment.total_amount / 50]
+      );
+
+      await pool.query(
+        `INSERT INTO video_tokens (token, purchase_id, video_id, video_title, mux_playback_id, buyer_email, allowed_ips)
+         VALUES ($1,$2,$3,$4,$5,$6,'[]')`,
+        [token, purchase.id, video.id, video.title, video.mux_full_id, `tg:${tgUserId}`]
+      );
+
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id:    chatId,
+          parse_mode: 'Markdown',
+          text: `✅ *Payment received!*
+
+🎬 *${video.title}*
+
+Your private watch link:
+${watchUrl}
+
+⚠️ This link is for your use only — do not share it.`,
+        }),
+      });
+
+      console.log(`[Stars] Watch link sent to TG ${tgUserId}: ${watchUrl}`);
+    } catch (e) {
+      console.error('[Stars] Delivery error:', e.message);
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: '❌ Payment received but delivery failed. Please contact support.' }),
+      });
+    }
+    return res.json({ ok: true });
+  }
+
+  res.json({ ok: true });
+});
+
+// Register Telegram webhook (call once per model after deploy)
+app.post('/api/stars/register-webhook', adminAuth, async (req, res) => {
+  const { model } = req.body;
+  const botToken  = MODEL_BOTS[model];
+  if (!botToken) return res.status(400).json({ error: 'No token for model: ' + model });
+  const webhookUrl = `https://amarettoh-production.up.railway.app/webhook/telegram/${model}`;
+  const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'pre_checkout_query'] }),
+  });
+  const data = await tgRes.json();
+  res.json({ webhook_url: webhookUrl, result: data });
+});
+
 // ── HEALTH ────────────────────────────────────────────────────
 app.get('/health', async (req, res) => {
   try {
