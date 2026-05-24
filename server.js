@@ -1028,8 +1028,10 @@ function usdToStars(usd) {
 
 // Generate Stars invoice link
 app.get('/api/stars/invoice', async (req, res) => {
-  const { video_id } = req.query;
+  const { video_id, email } = req.query;
   if (!video_id) return res.status(400).json({ error: 'video_id required' });
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'valid email required' });
+
   try {
     const { rows } = await pool.query(
       'SELECT id, title, description, price, model_id FROM videos WHERE id = $1 AND active = true',
@@ -1048,7 +1050,7 @@ app.get('/api/stars/invoice', async (req, res) => {
       body: JSON.stringify({
         title:          video.title.substring(0, 32),
         description:    (video.description || 'Exclusive private video').substring(0, 255),
-        payload:        JSON.stringify({ video_id: video.id, model_id: video.model_id }),
+        payload:        JSON.stringify({ video_id: video.id, model_id: video.model_id, email }),
         provider_token: '',
         currency:       'XTR',
         prices:         [{ label: 'Purchase', amount: stars }],
@@ -1136,11 +1138,13 @@ ${watchUrl}
       console.log(`[Stars] Watch link sent to TG ${tgUserId}: ${watchUrl}`);
     } catch (e) {
       console.error('[Stars] Delivery error:', e.message);
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: '❌ Payment received but delivery failed. Please contact support.' }),
-      });
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: '❌ Payment received but delivery failed. Please contact support.' }),
+        });
+      } catch(e) { console.log('[Stars] Could not send error msg:', e.message); }
     }
     return res.json({ ok: true });
   }
