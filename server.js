@@ -1067,28 +1067,54 @@ app.get('/api/stars/invoice', async (req, res) => {
 });
 
 // Telegram webhook — handles Stars payment confirmation
+// Test endpoint - ping to verify webhook is reachable
+app.get('/webhook/telegram/:model/test', (req, res) => {
+  const model = req.params.model;
+  const token = MODEL_BOTS[model];
+  res.json({
+    model,
+    webhook_reachable: true,
+    bot_token_set: !!token,
+    token_preview: token ? token.substring(0,8) + '...' : 'NOT SET'
+  });
+});
+
 app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
   const model  = req.params.model;
   const update = req.body;
-  console.log('[TG Webhook]', model, JSON.stringify(update).slice(0, 200));
+  // Log EVERYTHING that comes in
+  console.log('[TG Webhook] ===== INCOMING =====');
+  console.log('[TG Webhook] model:', model);
+  console.log('[TG Webhook] update_id:', update.update_id);
+  console.log('[TG Webhook] keys:', Object.keys(update));
+  console.log('[TG Webhook] full:', JSON.stringify(update));
+  console.log('[TG Webhook] ===================');
 
   // Must answer pre_checkout_query within 10s
   if (update.pre_checkout_query) {
     const botToken = MODEL_BOTS[model];
-    await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
+    console.log('[TG] pre_checkout_query received, answering...');
+    console.log('[TG] botToken set:', !!botToken);
+    const pResp = await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pre_checkout_query_id: update.pre_checkout_query.id, ok: true }),
     });
+    const pData = await pResp.json();
+    console.log('[TG] answerPreCheckoutQuery result:', JSON.stringify(pData));
     return res.json({ ok: true });
   }
 
   // Successful payment
   if (update.message?.successful_payment) {
+    console.log('[TG] ✅ SUCCESSFUL PAYMENT received!');
     const payment  = update.message.successful_payment;
     const chatId   = update.message.chat.id;
     const tgUserId = update.message.from.id;
     const botToken = MODEL_BOTS[model];
+    console.log('[TG] payment details:', JSON.stringify(payment));
+    console.log('[TG] chatId:', chatId, 'userId:', tgUserId);
+    console.log('[TG] botToken set:', !!botToken);
 
     let payload;
     try { payload = JSON.parse(payment.invoice_payload); } catch(e) { return res.json({ ok: true }); }
