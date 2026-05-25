@@ -1067,16 +1067,31 @@ app.get('/api/stars/invoice', async (req, res) => {
 });
 
 // Telegram webhook — handles Stars payment confirmation
-// Test endpoint - ping to verify webhook is reachable
-app.get('/webhook/telegram/:model/test', (req, res) => {
+// Test endpoint - shows bot info + webhook status
+app.get('/webhook/telegram/:model/test', async (req, res) => {
   const model = req.params.model;
   const token = MODEL_BOTS[model];
-  res.json({
-    model,
-    webhook_reachable: true,
-    bot_token_set: !!token,
-    token_preview: token ? token.substring(0,8) + '...' : 'NOT SET'
-  });
+  if (!token) return res.json({ model, bot_token_set: false });
+  try {
+    const [meRes, whRes] = await Promise.all([
+      fetch(`https://api.telegram.org/bot${token}/getMe`),
+      fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
+    ]);
+    const me = await meRes.json();
+    const wh = await whRes.json();
+    res.json({
+      model,
+      bot_token_set: true,
+      token_first8: token.substring(0, 8),
+      bot_username: me.result?.username || 'unknown',
+      bot_id: me.result?.id || 'unknown',
+      webhook_url: wh.result?.url || '(empty)',
+      pending_updates: wh.result?.pending_update_count || 0,
+      last_error: wh.result?.last_error_message || 'none',
+    });
+  } catch(e) {
+    res.json({ model, error: e.message });
+  }
 });
 
 app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
@@ -1185,14 +1200,32 @@ app.get('/api/stars/register-webhook', async (req, res) => {
   if (key !== process.env.ADMIN_API_KEY) return res.status(401).json({ error: 'Unauthorized' });
   const botToken = MODEL_BOTS[model];
   if (!botToken) return res.status(400).json({ error: 'No token for model: ' + model });
+  
+  // Show bot info first
+  const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+  const meData = await meRes.json();
+  
   const webhookUrl = `https://amarettoh-production.up.railway.app/webhook/telegram/${model}`;
-  const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+  const setRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'pre_checkout_query'] }),
   });
-  const data = await tgRes.json();
-  res.json({ webhook_url: webhookUrl, result: data });
+  const setData = await setRes.json();
+  
+  // Verify it was set
+  const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+  const verifyData = await verifyRes.json();
+  
+  res.json({
+    bot: meData.result?.username,
+    bot_id: meData.result?.id,
+    token_first8: botToken.substring(0,8),
+    webhook_url: webhookUrl,
+    set_result: setData,
+    verified_url: verifyData.result?.url,
+    webhook_active: verifyData.result?.url === webhookUrl,
+  });
 });
 
 app.post('/api/stars/register-webhook', adminAuth, async (req, res) => {
