@@ -1153,6 +1153,22 @@ ${watchUrl}
 });
 
 // Register Telegram webhook (call once per model after deploy)
+// Also support GET so it can be called from browser: /api/stars/register-webhook?model=amber&key=xxx
+app.get('/api/stars/register-webhook', async (req, res) => {
+  const { model, key } = req.query;
+  if (key !== process.env.ADMIN_API_KEY) return res.status(401).json({ error: 'Unauthorized' });
+  const botToken = MODEL_BOTS[model];
+  if (!botToken) return res.status(400).json({ error: 'No token for model: ' + model });
+  const webhookUrl = `https://amarettoh-production.up.railway.app/webhook/telegram/${model}`;
+  const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message', 'pre_checkout_query'] }),
+  });
+  const data = await tgRes.json();
+  res.json({ webhook_url: webhookUrl, result: data });
+});
+
 app.post('/api/stars/register-webhook', adminAuth, async (req, res) => {
   const { model } = req.body;
   const botToken  = MODEL_BOTS[model];
