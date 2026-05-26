@@ -28,18 +28,21 @@ const SITE_URL   = process.env.SITE_URL || 'https://amarettoh.com';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@amarettoh.com';
 const MAX_IPS    = 3;
 
-// getSiteUrl — DB first, env fallback
+// getSiteUrl — DB first, env fallback, hardcoded fallback
 async function getSiteUrl(modelId) {
-  const m = await getModel(modelId);
-  if (m?.site_url) return m.site_url;
+  try {
+    const m = await getModel(modelId);
+    if (m?.site_url) return m.site_url.replace(/\/+$/, ''); // strip trailing slash
+  } catch(e) { /* DB not ready */ }
   const envMap = {
     amaretto: process.env.SITE_URL_AMARETTO || process.env.SITE_URL,
     nyla:     process.env.SITE_URL_NYLA,
     sophia:   process.env.SITE_URL_SOPHIA,
-    amber:    process.env.SITE_URL_AMBER,
+    amber:    process.env.SITE_URL_AMBER    || 'https://storied-pegasus-eed2aa.netlify.app',
     ellie:    process.env.SITE_URL_ELLIE,
   };
-  return envMap[modelId] || SITE_URL;
+  const url = envMap[modelId] || SITE_URL || 'https://storied-pegasus-eed2aa.netlify.app';
+  return url.replace(/\/+$/, ''); // strip trailing slash
 }
 
 // Supabase client for storage operations
@@ -1027,9 +1030,13 @@ async function getModels() {
     rows.forEach(r => { cache[r.model_id] = r; });
     _modelCache = cache;
     _modelCacheTs = now;
-    console.log('[Models] Loaded from DB:', Object.keys(cache));
+    if (Object.keys(cache).length) console.log('[Models] Loaded from DB:', Object.keys(cache));
   } catch(e) {
-    console.error('[Models] DB load error:', e.message);
+    // Table may not exist yet — suppress repeated errors, use env vars
+    if (!_modelCache._errLogged) {
+      console.log('[Models] Table not ready yet, using env vars');
+      _modelCache._errLogged = true;
+    }
   }
   return _modelCache;
 }
@@ -1041,8 +1048,11 @@ async function getModel(modelId) {
 
 // Backward compat helpers
 async function getBotToken(modelId) {
-  const m = await getModel(modelId);
-  return m?.bot_token || process.env[`${modelId.toUpperCase()}_BOT_TOKEN`] || null;
+  try {
+    const m = await getModel(modelId);
+    if (m?.bot_token) return m.bot_token;
+  } catch(e) { /* DB not ready */ }
+  return process.env[`${modelId.toUpperCase()}_BOT_TOKEN`] || null;
 }
 
 function usdToStars(usd) {
@@ -1178,7 +1188,8 @@ app.post('/webhook/telegram/:model', (req, res, next) => {
       if (!video) throw new Error('Video not found');
 
       const token    = makeToken();
-      const watchUrl = `${await getSiteUrl(model_id)}/watch?t=${token}`;
+      const siteBase = (await getSiteUrl(model_id)).replace(/\/+$/, '');
+      const watchUrl  = `${siteBase}/watch?t=${token}`;
       const orderId  = `TG-${tgUserId}-${Date.now()}`;
 
       const { rows: [purchase] } = await pool.query(
