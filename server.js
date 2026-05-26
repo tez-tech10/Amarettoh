@@ -28,17 +28,18 @@ const SITE_URL   = process.env.SITE_URL || 'https://amarettoh.com';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@amarettoh.com';
 const MAX_IPS    = 3;
 
-// Per-model site URLs — set these as env vars or update here after deployment
-const MODEL_SITES = {
-  amaretto: process.env.SITE_URL_AMARETTO || process.env.SITE_URL || 'https://amarettoh.com',
-  nyla:     process.env.SITE_URL_NYLA     || 'https://nylagreen.com',
-  sophia:   process.env.SITE_URL_SOPHIA   || 'https://sophiavee.netlify.app',
-  amber:    process.env.SITE_URL_AMBER    || 'https://amberdyme.netlify.app',
-  ellie:    process.env.SITE_URL_ELLIE    || 'https://elliesgotcake.netlify.app',
-};
-
-function getSiteUrl(modelId) {
-  return MODEL_SITES[modelId] || SITE_URL;
+// getSiteUrl — DB first, env fallback
+async function getSiteUrl(modelId) {
+  const m = await getModel(modelId);
+  if (m?.site_url) return m.site_url;
+  const envMap = {
+    amaretto: process.env.SITE_URL_AMARETTO || process.env.SITE_URL,
+    nyla:     process.env.SITE_URL_NYLA,
+    sophia:   process.env.SITE_URL_SOPHIA,
+    amber:    process.env.SITE_URL_AMBER,
+    ellie:    process.env.SITE_URL_ELLIE,
+  };
+  return envMap[modelId] || SITE_URL;
 }
 
 // Supabase client for storage operations
@@ -243,7 +244,7 @@ app.post('/webhook/payhip', async (req, res) => {
     if (video) {
       try {
         const token    = makeToken();
-        const modelSite = getSiteUrl(video.model_id || 'amaretto');
+        const modelSite = await getSiteUrl(video.model_id || 'amaretto');
         const watchUrl  = `${modelSite}/watch?t=${token}`;
         const muxId    = video.mux_full_id || video.mux_preview_id;
 
@@ -305,7 +306,7 @@ app.post('/api/admin/resend-link/:purchaseId', adminAuth, async (req, res) => {
 
     // Generate new token
     const token    = makeToken();
-    const watchUrl = `${getSiteUrl(purchase.model_id || 'amaretto')}/watch?t=${token}`;
+    const watchUrl = `${await getSiteUrl(purchase.model_id || 'amaretto')}/watch?t=${token}`;
     const muxId    = purchase.mux_full_id || purchase.mux_preview_id;
 
     await pool.query(
@@ -389,7 +390,7 @@ app.post('/api/verify', async (req, res) => {
 
     // Create watch token
     const token   = makeToken();
-    const watchUrl = `${getSiteUrl(purchase.model_id || 'amaretto')}/watch?t=${token}`;
+    const watchUrl = `${await getSiteUrl(purchase.model_id || 'amaretto')}/watch?t=${token}`;
     const email   = purchase.buyer_email;
     const muxId   = purchase.mux_full_id || purchase.mux_preview_id;
 
@@ -1013,13 +1014,36 @@ function buildSupportReplyEmail(subject, body, ticketId) {
 
 // ── TELEGRAM STARS ──────────────────────────────────────────
 
-const MODEL_BOTS = {
-  amber:    process.env.AMBER_BOT_TOKEN,
-  ellie:    process.env.ELLIE_BOT_TOKEN,
-  nyla:     process.env.NYLA_BOT_TOKEN,
-  sophia:   process.env.SOPHIA_BOT_TOKEN,
-  amaretto: process.env.AMARETTO_BOT_TOKEN,
-};
+// Model config cache — loaded from DB
+let _modelCache = {};
+let _modelCacheTs = 0;
+
+async function getModels() {
+  const now = Date.now();
+  if (now - _modelCacheTs < 30000) return _modelCache; // 30s cache
+  try {
+    const { rows } = await pool.query('SELECT * FROM models WHERE active = true');
+    const cache = {};
+    rows.forEach(r => { cache[r.model_id] = r; });
+    _modelCache = cache;
+    _modelCacheTs = now;
+    console.log('[Models] Loaded from DB:', Object.keys(cache));
+  } catch(e) {
+    console.error('[Models] DB load error:', e.message);
+  }
+  return _modelCache;
+}
+
+async function getModel(modelId) {
+  const models = await getModels();
+  return models[modelId] || null;
+}
+
+// Backward compat helpers
+async function getBotToken(modelId) {
+  const m = await getModel(modelId);
+  return m?.bot_token || process.env[`${modelId.toUpperCase()}_BOT_TOKEN`] || null;
+}
 
 function usdToStars(usd) {
   // 1 USD ≈ 50 Stars
@@ -1040,7 +1064,7 @@ app.get('/api/stars/invoice', async (req, res) => {
     const video = rows[0];
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
-    const botToken = MODEL_BOTS[video.model_id];
+    const botToken = await getBotToken(video.model_id);
     if (!botToken) return res.status(500).json({ error: 'Bot token not configured for: ' + video.model_id });
 
     const stars = usdToStars(video.price);
@@ -1094,7 +1118,17 @@ app.get('/webhook/telegram/:model/test', async (req, res) => {
   }
 });
 
-app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
+// Telegram sends GET test when registering webhook — must return 200
+app.get('/webhook/telegram/:model', (req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+app.post('/webhook/telegram/:model', (req, res, next) => {
+  express.json()(req, res, function(err) {
+    if (err) { res.status(200).json({ ok: true }); return; }
+    next();
+  });
+}, async (req, res) => {
   const model  = req.params.model;
   const update = req.body;
   // Log EVERYTHING that comes in
@@ -1107,7 +1141,7 @@ app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
 
   // Must answer pre_checkout_query within 10s
   if (update.pre_checkout_query) {
-    const botToken = MODEL_BOTS[model];
+    const botToken = await getBotToken(model);
     console.log('[TG] pre_checkout_query received, answering...');
     console.log('[TG] botToken set:', !!botToken);
     const pResp = await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
@@ -1126,7 +1160,7 @@ app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
     const payment  = update.message.successful_payment;
     const chatId   = update.message.chat.id;
     const tgUserId = update.message.from.id;
-    const botToken = MODEL_BOTS[model];
+    const botToken = await getBotToken(model);
     console.log('[TG] payment details:', JSON.stringify(payment));
     console.log('[TG] chatId:', chatId, 'userId:', tgUserId);
     console.log('[TG] botToken set:', !!botToken);
@@ -1144,7 +1178,7 @@ app.post('/webhook/telegram/:model', express.json(), async (req, res) => {
       if (!video) throw new Error('Video not found');
 
       const token    = makeToken();
-      const watchUrl = `${getSiteUrl(model_id)}/watch?t=${token}`;
+      const watchUrl = `${await getSiteUrl(model_id)}/watch?t=${token}`;
       const orderId  = `TG-${tgUserId}-${Date.now()}`;
 
       const { rows: [purchase] } = await pool.query(
@@ -1198,7 +1232,7 @@ ${watchUrl}
 app.get('/api/stars/register-webhook', async (req, res) => {
   const { model, key } = req.query;
   if (key !== process.env.ADMIN_API_KEY) return res.status(401).json({ error: 'Unauthorized' });
-  const botToken = MODEL_BOTS[model];
+  const botToken = await getBotToken(model);
   if (!botToken) return res.status(400).json({ error: 'No token for model: ' + model });
   
   // Show bot info first
@@ -1213,7 +1247,8 @@ app.get('/api/stars/register-webhook', async (req, res) => {
   });
   const setData = await setRes.json();
   
-  // Verify it was set
+  // Wait briefly then verify
+  await new Promise(r => setTimeout(r, 1500));
   const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
   const verifyData = await verifyRes.json();
   
@@ -1240,6 +1275,106 @@ app.post('/api/stars/register-webhook', adminAuth, async (req, res) => {
   });
   const data = await tgRes.json();
   res.json({ webhook_url: webhookUrl, result: data });
+});
+
+
+// ── MODELS API ───────────────────────────────────────────────
+
+// GET all models
+app.get('/api/admin/models', adminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM models ORDER BY created_at ASC');
+    // Never expose full bot tokens in list
+    const safe = rows.map(r => ({ ...r, bot_token: r.bot_token ? '••••' + r.bot_token.slice(-4) : null, _has_token: !!r.bot_token }));
+    res.json(safe);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET single model (with full token for internal use)
+app.get('/api/admin/models/:modelId', adminAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM models WHERE model_id = $1', [req.params.modelId]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const m = { ...rows[0], bot_token: rows[0].bot_token ? '••••' + rows[0].bot_token.slice(-4) : null };
+    res.json(m);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST create model
+app.post('/api/admin/models', adminAuth, async (req, res) => {
+  const { model_id, name, site_url, bot_token, of_url, telegram_channel, theme_color, admin_password, active } = req.body;
+  if (!model_id || !name) return res.status(400).json({ error: 'model_id and name required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO models (model_id, name, site_url, bot_token, of_url, telegram_channel, theme_color, admin_password, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, model_id, name`,
+      [model_id, name, site_url||null, bot_token||null, of_url||null, telegram_channel||null,
+       theme_color||'#C8960A', admin_password||'admin2024', active !== false]
+    );
+    _modelCacheTs = 0; // Bust cache
+    res.json({ ok: true, model: rows[0] });
+  } catch(e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Model ID already exists' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT update model
+app.put('/api/admin/models/:id', adminAuth, async (req, res) => {
+  const { name, site_url, bot_token, of_url, telegram_channel, theme_color, admin_password, active } = req.body;
+  try {
+    // Only update bot_token if a real value is provided (not masked)
+    const existing = await pool.query('SELECT bot_token FROM models WHERE id = $1', [req.params.id]);
+    const finalToken = (bot_token && !bot_token.startsWith('••••')) ? bot_token : existing.rows[0]?.bot_token;
+
+    await pool.query(
+      `UPDATE models SET name=$1, site_url=$2, bot_token=$3, of_url=$4, telegram_channel=$5,
+       theme_color=$6, admin_password=$7, active=$8 WHERE id=$9`,
+      [name, site_url||null, finalToken||null, of_url||null, telegram_channel||null,
+       theme_color||'#C8960A', admin_password||'admin2024', active !== false, req.params.id]
+    );
+    _modelCacheTs = 0; // Bust cache
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE model
+app.delete('/api/admin/models/:modelId', adminAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM models WHERE model_id = $1', [req.params.modelId]);
+    _modelCacheTs = 0;
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET stats across all models
+app.get('/api/admin/stats', adminAuth, async (req, res) => {
+  try {
+    const [v, p, r] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM videos'),
+      pool.query('SELECT COUNT(*) FROM purchases'),
+      pool.query('SELECT COALESCE(SUM(amount),0) AS total FROM purchases'),
+    ]);
+    res.json({
+      total_videos:    parseInt(v.rows[0].count),
+      total_purchases: parseInt(p.rows[0].count),
+      total_revenue:   parseFloat(r.rows[0].total),
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET all purchases across models
+app.get('/api/admin/purchases', adminAuth, async (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.*, v.title as video_title, v.model_id
+       FROM purchases p LEFT JOIN videos v ON v.id = p.video_id
+       ORDER BY p.created_at DESC LIMIT $1`,
+      [limit]
+    );
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── HEALTH ────────────────────────────────────────────────────
