@@ -720,6 +720,7 @@ app.put('/api/admin/videos/:id', adminAuth, async (req, res) => {
   set('mux_full_id',       fullId);
   set('payhip_url',        payhip_url);
   set('payhip_product_id', productId);
+  set('payment_method',    payment_method);
   set('active',            active);
 
   if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
