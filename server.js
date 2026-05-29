@@ -154,7 +154,8 @@ app.get('/api/videos', async (req, res) => {
     const model = req.query.model || null;
     const { rows } = await pool.query(
       `SELECT id, title, description, price, duration,
-              preview_type, mux_preview_id, mux_full_id, payhip_url
+              preview_type, mux_preview_id, mux_full_id, payhip_url,
+              COALESCE(payment_method, 'payhip') as payment_method
        FROM videos
        WHERE active = true
        ${model ? 'AND model_id = $1' : ''}
