@@ -56,16 +56,31 @@ app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
-    const allowed = [
-      SITE_URL,
-      'https://timely-jelly-d669b7.netlify.app',
+    // Allow all netlify sites, custom domains, and localhost
+    const alwaysAllow = [
       'http://localhost:3000',
       'http://127.0.0.1:5500',
     ];
-    if (allowed.some(function(o) { return origin === o || origin.endsWith('.netlify.app'); })) {
+    if (
+      alwaysAllow.includes(origin) ||
+      origin.endsWith('.netlify.app') ||
+      origin.endsWith('.railway.app') ||
+      origin === 'https://amberxdyme.com' ||
+      origin === 'https://www.amberxdyme.com' ||
+      origin === 'https://nylagreen.com' ||
+      origin === 'https://www.nylagreen.com' ||
+      origin === SITE_URL
+    ) {
       return callback(null, true);
     }
-    callback(new Error('CORS: origin not allowed — ' + origin));
+    // Also check models table for registered site URLs
+    getModels().then(function(models) {
+      const modelUrls = Object.values(models).map(function(m) { return m.site_url; }).filter(Boolean);
+      if (modelUrls.some(function(u) { return origin === u || origin === u.replace('https://','https://www.'); })) {
+        return callback(null, true);
+      }
+      callback(new Error('CORS: origin not allowed — ' + origin));
+    }).catch(function() { callback(null, true); }); // allow if DB fails
   },
   methods: ['GET','POST','PUT','DELETE'],
   allowedHeaders: ['Content-Type','Authorization'],
