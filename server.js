@@ -1204,24 +1204,49 @@ app.post('/webhook/telegram/:model', (req, res, next) => {
         [token, purchase.id, video.id, video.title, video.mux_full_id, `tg:${tgUserId}`]
       );
 
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id:    chatId,
-          parse_mode: 'Markdown',
-          text: `✅ *Payment received!*
+      const buyerEmail = payload.email || null;
+      console.log('[TG] buyer email:', buyerEmail);
+      console.log('[TG] watch URL:', watchUrl);
+
+      // ── Send email via Resend ──
+      if (buyerEmail) {
+        try {
+          const emailResult = await resend.emails.send({
+            from:    FROM_EMAIL,
+            to:      buyerEmail,
+            subject: `Your video is ready — ${video.title}`,
+            html:    buildWatchEmail(video.title, watchUrl, orderId, model_id),
+          });
+          console.log('[TG] ✅ Email sent:', JSON.stringify(emailResult));
+        } catch(emailErr) {
+          console.error('[TG] ❌ Email failed:', emailErr.message);
+        }
+      } else {
+        console.warn('[TG] ⚠️ No email in payload');
+      }
+
+      // ── Also confirm in Telegram ──
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id:    chatId,
+            parse_mode: 'Markdown',
+            text: `✅ *Payment received!*
 
 🎬 *${video.title}*
 
-Your private watch link:
-${watchUrl}
+Your watch link has been sent to *${buyerEmail || 'your email'}*.
 
-⚠️ This link is for your use only — do not share it.`,
-        }),
-      });
+Check your inbox! 📧`,
+          }),
+        });
+      } catch(tgErr) {
+        console.log('[TG] Could not send TG confirmation:', tgErr.message);
+      }
 
-      console.log(`[Stars] Watch link sent to TG ${tgUserId}: ${watchUrl}`);
+      console.log(`[Stars] ✅ Done — watch link: ${watchUrl}`);
     } catch (e) {
       console.error('[Stars] Delivery error:', e.message);
       try {
