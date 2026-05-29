@@ -657,10 +657,15 @@ app.get('/api/admin/videos', adminAuth, async (req, res) => {
 
 app.post('/api/admin/videos', adminAuth, async (req, res) => {
   const { title, description, price, duration, preview_type,
-          mux_preview_embed, mux_full_embed, payhip_url, active } = req.body;
+          mux_preview_embed, mux_full_embed, payhip_url, active,
+          payment_method, stars_price } = req.body;
 
-  if (!title || !mux_full_embed || !payhip_url)
-    return res.status(400).json({ error: 'title, mux_full_embed and payhip_url required' });
+  // payhip_url only required when payment method is payhip or both
+  const pm = payment_method || 'payhip';
+  if (!title || !mux_full_embed)
+    return res.status(400).json({ error: 'title and mux_full_embed are required' });
+  if ((pm === 'payhip' || pm === 'both') && !payhip_url)
+    return res.status(400).json({ error: 'payhip_url required for Payhip payment method' });
 
   const fullId    = extractMuxId(mux_full_embed);
   const previewId = mux_preview_embed ? extractMuxId(mux_preview_embed) : null;
@@ -691,7 +696,8 @@ app.post('/api/admin/videos', adminAuth, async (req, res) => {
 
 app.put('/api/admin/videos/:id', adminAuth, async (req, res) => {
   const { title, description, price, duration, preview_type,
-          mux_preview_embed, mux_full_embed, payhip_url, active } = req.body;
+          mux_preview_embed, mux_full_embed, payhip_url, active,
+          payment_method, stars_price } = req.body;
 
   const fullId    = mux_full_embed    ? extractMuxId(mux_full_embed)    : undefined;
   const previewId = mux_preview_embed ? extractMuxId(mux_preview_embed) : undefined;
